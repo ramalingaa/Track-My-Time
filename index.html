@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track My Time</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f4f0; --card: #ffffff; --ink: #1b1b1a; --muted: #77756f; --line: #e3e1da;
+    --active: #1f7a4d; --active-soft: #e5f3eb; --danger: #b3412e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #20201e; --ink: #f1efe9; --muted: #9a978f; --line: #33322f;
+      --active: #3fbf7f; --active-soft: #18301f; --danger: #e0715e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 18px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .grand { text-align: right; }
+  .grand .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .grand .val { font-family: "JetBrains Mono", monospace; font-size: 20px; font-weight: 700; }
+  form { display: flex; gap: 8px; margin-bottom: 18px; }
+  input[type=text] { flex: 1; padding: 12px 14px; font-size: 16px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); color: var(--ink); font-family: inherit; }
+  input[type=text]:focus { outline: 2px solid var(--active); outline-offset: -1px; }
+  button { font-family: inherit; cursor: pointer; }
+  .add { padding: 0 18px; font-size: 15px; font-weight: 600; border: none; border-radius: 10px; background: var(--ink); color: var(--bg); }
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .clock { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; transition: border-color .15s, background .15s; }
+  .clock.on { border-color: var(--active); background: var(--active-soft); box-shadow: 0 0 0 1px var(--active); }
+  .face { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border: 0; background: transparent; color: inherit; text-align: left; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--muted); flex: none; }
+  .on .dot { background: var(--active); border-color: var(--active); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .info { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .on .info { color: var(--active); font-weight: 500; }
+  .time { font-family: "JetBrains Mono", monospace; font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bar { display: flex; gap: 4px; padding: 0 12px 10px 42px; }
+  .bar button { background: none; border: 0; color: var(--muted); font-size: 12px; padding: 4px 6px; border-radius: 6px; }
+  .bar button:hover { color: var(--ink); background: var(--line); }
+  .bar .del:hover { color: var(--danger); }
+  .log { display: none; padding: 0 16px 14px 42px; font-size: 13px; }
+  .log.open { display: block; }
+  .log table { width: 100%; border-collapse: collapse; }
+  .log td { padding: 5px 0; border-top: 1px solid var(--line); color: var(--muted); }
+  .log td:last-child { text-align: right; font-family: "JetBrains Mono", monospace; color: var(--ink); }
+  .empty { text-align: center; color: var(--muted); padding: 40px 12px; border: 1px dashed var(--line); border-radius: 14px; font-size: 14px; }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 8px; }
+  .ghost { background: none; border: 1px solid var(--line); color: var(--ink); padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+  .ghost:hover { border-color: var(--muted); }
+  .note { font-size: 12px; color: var(--muted); }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 16px; }
+  .modal.show { display: flex; }
+  .box { background: var(--card); border-radius: 14px; padding: 20px; max-width: 340px; width: 100%; }
+  .box p { margin: 0 0 16px; }
+  .box .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .box .danger { background: var(--danger); color: #fff; border: 0; padding: 8px 14px; border-radius: 8px; font-weight: 600; }
+  .notes { display: none; padding: 0 16px 16px 42px; }
+  .notes.open { display: block; }
+  .notes textarea { width: 100%; min-height: 64px; resize: vertical; padding: 10px 12px; font: 14px/1.45 Inter, system-ui, sans-serif;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); }
+  .notes textarea:focus { outline: 2px solid var(--active); outline-offset: -1px; }
+  .notes .addrow { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 10px; }
+  .notes .addnote { padding: 7px 14px; font-size: 13px; font-weight: 600; border: 0; border-radius: 8px; background: var(--ink); color: var(--bg); }
+  .note-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid var(--line); }
+  .note-item input[type=checkbox] { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--active); flex: none; cursor: pointer; }
+  .note-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.45; cursor: text; }
+  .note-item.done .note-text { text-decoration: line-through; color: var(--muted); }
+  .note-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .note-del { background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+  .note-del:hover { color: var(--danger); background: var(--line); }
+  .note-edit { width: 100%; min-height: 48px; }
+  kbd { font-family: "JetBrains Mono", monospace; font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Track My Time</h1>
+      <div class="sub">Tap a project to start its clock. Only one runs at a time.</div>
+    </div>
+    <div class="grand"><div class="lbl">Total</div><div class="val" id="grand">0:00:00</div></div>
+  </header>
+
+  <form id="addForm" autocomplete="off">
+    <input type="text" id="nameInput" placeholder="Project name" maxlength="60">
+    <button class="add" type="submit">Add</button>
+  </form>
+
+  <div class="list" id="list"></div>
+
+  <div class="foot">
+    <span class="note">Press <kbd>1</kbd>–<kbd>9</kbd> to switch, <kbd>Space</kbd> to pause</span>
+    <button class="ghost" id="resetAll">Reset all</button>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="box">
+    <p id="modalText"></p>
+    <div class="row">
+      <button class="ghost" id="modalCancel">Cancel</button>
+      <button class="danger" id="modalOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const KEY = 'project-chess-clock-v1';
+  // state: { projects: [{id, name, sessions:[{start, end|null}]}], activeId }
+  let state = { projects: [], activeId: null };
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.projects)) state = s; } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+  const $ = id => document.getElementById(id);
+  const openLogs = new Set(), openNotes = new Set(), drafts = {};
+  state.projects.forEach(p => { if (!Array.isArray(p.notes)) p.notes = []; });
+
+  const fmt = ms => {
+    const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+  const fmtClock = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const fmtDay = d => new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const sessLen = (s, now) => (s.end ?? now) - s.start;
+  const total = (p, now) => p.sessions.reduce((a, s) => a + sessLen(s, now), 0);
+  const find = id => state.projects.find(p => p.id === id);
+
+  function stopActive(now) {
+    const p = find(state.activeId);
+    if (p) { const s = p.sessions[p.sessions.length - 1]; if (s && s.end == null) s.end = now; }
+    state.activeId = null;
+  }
+  function toggle(id) {
+    const now = Date.now();
+    const wasActive = state.activeId === id;
+    stopActive(now);
+    if (!wasActive) { find(id).sessions.push({ start: now, end: null }); state.activeId = id; }
+    save(); render();
+  }
+
+  function render() {
+    const now = Date.now(), list = $('list');
+    if (!state.projects.length) {
+      list.innerHTML = '<div class="empty">Add your first project above, then tap it to start the clock.</div>';
+    } else {
+      list.innerHTML = state.projects.map((p, i) => {
+        const on = p.id === state.activeId;
+        const cur = on ? p.sessions[p.sessions.length - 1] : null;
+        const n = p.sessions.length;
+        const info = on ? `Running · this session ${fmt(sessLen(cur, now))}` : (n ? `${n} session${n > 1 ? 's' : ''} · paused` : 'Not started');
+        const rows = p.sessions.slice().reverse().map(s =>
+          `<tr><td>${fmtDay(s.start)}, ${fmtClock(s.start)} – ${s.end ? fmtClock(s.end) : 'now'}</td><td>${fmt(sessLen(s, now))}</td></tr>`).join('');
+        const openCount = p.notes.filter(x => !x.done).length;
+        const noteRows = p.notes.map(x => `<div class="note-item ${x.done ? 'done' : ''}" data-note="${x.id}">
+            <input type="checkbox" data-act="note-done" ${x.done ? 'checked' : ''} aria-label="Mark done">
+            <div style="flex:1;min-width:0"><div class="note-text" data-act="note-edit" title="Click to edit">${esc(x.text)}</div>
+            <div class="note-time">${fmtDay(x.created)}, ${fmtClock(x.created)}</div></div>
+            <button class="note-del" data-act="note-del" aria-label="Delete note">×</button></div>`).join('');
+        return `<div class="clock ${on ? 'on' : ''}" data-id="${p.id}">
+          <button class="face" data-act="toggle" aria-pressed="${on}">
+            <span class="dot"></span>
+            <span class="meta"><div class="name">${i < 9 ? (i + 1) + '. ' : ''}${esc(p.name)}</div><div class="info" data-info>${info}</div></span>
+            <span class="time" data-time>${fmt(total(p, now))}</span>
+          </button>
+          <div class="bar">
+            <button data-act="log">${openLogs.has(p.id) ? 'Hide' : 'Show'} entries</button>
+            <button data-act="notes">Notes${p.notes.length ? ` (${openCount}/${p.notes.length})` : ''}</button>
+            <button data-act="rename">Rename</button>
+            <button data-act="reset">Reset</button>
+            <button class="del" data-act="delete">Delete</button>
+          </div>
+          <div class="log ${openLogs.has(p.id) ? 'open' : ''}">${rows ? `<table>${rows}</table>` : '<span class="note">No entries yet.</span>'}</div>
+          <div class="notes ${openNotes.has(p.id) ? 'open' : ''}">
+            <textarea data-draft placeholder="Write a note or to-do…">${esc(drafts[p.id] || '')}</textarea>
+            <div class="addrow"><span class="note">Ctrl/⌘ + Enter to add</span><button class="addnote" data-act="note-add">Add note</button></div>
+            ${noteRows || '<span class="note">No notes yet.</span>'}
+          </div>
+        </div>`;
+      }).join('');
+    }
+    $('grand').textContent = fmt(state.projects.reduce((a, p) => a + total(p, now), 0));
+  }
+
+  // Light per-second update of the running clock only
+  setInterval(() => {
+    if (!state.activeId) return;
+    const now = Date.now(), p = find(state.activeId);
+    const el = document.querySelector(`.clock[data-id="${p.id}"]`);
+    if (!el) return;
+    el.querySelector('[data-time]').textContent = fmt(total(p, now));
+    el.querySelector('[data-info]').textContent = `Running · this session ${fmt(sessLen(p.sessions[p.sessions.length - 1], now))}`;
+    const openRow = el.querySelector('.log.open tr td:last-child');
+    if (openRow) openRow.textContent = fmt(sessLen(p.sessions[p.sessions.length - 1], now));
+    $('grand').textContent = fmt(state.projects.reduce((a, q) => a + total(q, now), 0));
+  }, 250);
+
+  function esc(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  let pending = null;
+  function ask(text, okLabel, fn) {
+    $('modalText').textContent = text; $('modalOk').textContent = okLabel; pending = fn; $('modal').classList.add('show');
+  }
+  $('modalCancel').onclick = () => { $('modal').classList.remove('show'); pending = null; };
+  $('modalOk').onclick = () => { $('modal').classList.remove('show'); if (pending) pending(); pending = null; };
+
+  $('addForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('nameInput').value.trim();
+    if (!name) return;
+    state.projects.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, sessions: [], notes: [] });
+    $('nameInput').value = ''; save(); render();
+  });
+
+  $('list').addEventListener('click', e => {
+    const btn = e.target.closest('[data-act]'); if (!btn) return;
+    const card = btn.closest('.clock'), id = card.dataset.id, p = find(id), act = btn.dataset.act;
+    if (act === 'toggle') toggle(id);
+    else if (act === 'log') { openLogs.has(id) ? openLogs.delete(id) : openLogs.add(id); render(); }
+    else if (act === 'notes') {
+      const opening = !openNotes.has(id);
+      opening ? openNotes.add(id) : openNotes.delete(id); render();
+      if (opening) document.querySelector(`.clock[data-id="${id}"] [data-draft]`).focus();
+    }
+    else if (act === 'note-add') addNote(id);
+    else if (act === 'note-done' || act === 'note-del' || act === 'note-edit') {
+      const nid = btn.closest('[data-note]').dataset.note, n = p.notes.find(x => x.id === nid);
+      if (act === 'note-done') { n.done = btn.checked; save(); render(); }
+      else if (act === 'note-del') { p.notes = p.notes.filter(x => x.id !== nid); save(); render(); }
+      else {
+        const ta = document.createElement('textarea');
+        ta.className = 'note-edit'; ta.value = n.text; btn.replaceWith(ta); ta.focus();
+        let cancelled = false;
+        ta.addEventListener('blur', () => { const v = ta.value.trim(); if (!cancelled && v) n.text = v; save(); render(); });
+        ta.addEventListener('keydown', ev => {
+          if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) ta.blur();
+          if (ev.key === 'Escape') { cancelled = true; ta.blur(); }
+        });
+      }
+    }
+    else if (act === 'rename') {
+      const nameEl = card.querySelector('.name');
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.value = p.name; inp.style.cssText = 'padding:6px 8px;font-size:15px;width:100%';
+      nameEl.replaceWith(inp); inp.focus(); inp.select();
+      inp.addEventListener('click', ev => ev.stopPropagation());
+      const done = () => { const v = inp.value.trim(); if (v) p.name = v; save(); render(); };
+      inp.addEventListener('blur', done);
+      inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = p.name; inp.blur(); } });
+    }
+    else if (act === 'reset') ask(`Clear all time for "${p.name}"?`, 'Reset', () => {
+      if (state.activeId === id) state.activeId = null; p.sessions = []; save(); render(); });
+    else if (act === 'delete') ask(`Delete "${p.name}" and its entries?`, 'Delete', () => {
+      if (state.activeId === id) state.activeId = null;
+      state.projects = state.projects.filter(x => x.id !== id); save(); render(); });
+  });
+
+  function addNote(id) {
+    const p = find(id), ta = document.querySelector(`.clock[data-id="${id}"] [data-draft]`);
+    const text = (ta ? ta.value : '').trim();
+    if (!text) { if (ta) ta.focus(); return; }
+    p.notes.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, done: false, created: Date.now() });
+    delete drafts[id]; save(); render();
+    document.querySelector(`.clock[data-id="${id}"] [data-draft]`).focus();
+  }
+  $('list').addEventListener('input', e => {
+    if (e.target.matches('[data-draft]')) drafts[e.target.closest('.clock').dataset.id] = e.target.value;
+  });
+  $('list').addEventListener('keydown', e => {
+    if (e.target.matches('[data-draft]') && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault(); addNote(e.target.closest('.clock').dataset.id);
+    }
+  });
+
+  $('resetAll').onclick = () => ask('Clear the time for every project? Projects stay, entries are removed.', 'Reset all', () => {
+    state.activeId = null; state.projects.forEach(p => p.sessions = []); save(); render(); });
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || $('modal').classList.contains('show')) return;
+    if (e.key === ' ') { e.preventDefault(); if (state.activeId) { stopActive(Date.now()); save(); render(); } }
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= 9 && state.projects[n - 1]) toggle(state.projects[n - 1].id);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
