@@ -77,6 +77,20 @@
   .note-del { background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
   .note-del:hover { color: var(--danger); background: var(--line); }
   .note-edit { width: 100%; min-height: 48px; }
+  .adj { display: none; padding: 0 16px 16px 42px; }
+  .adj.open { display: block; }
+  .adj .fields { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .adj input[type=number] { width: 72px; padding: 9px 10px; font-size: 16px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); color: var(--ink); font-family: "JetBrains Mono", monospace; }
+  .adj input[type=number]:focus { outline: 2px solid var(--active); outline-offset: -1px; }
+  .adj .unit { font-size: 13px; color: var(--muted); margin-right: 4px; }
+  .adj .btn { padding: 9px 14px; font-size: 13px; font-weight: 600; border-radius: 8px; border: 0; background: var(--ink); color: var(--bg); }
+  .adj .btn.sub { background: none; border: 1px solid var(--line); color: var(--ink); }
+  .adj .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .adj .chip { padding: 5px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--ink); }
+  .adj .chip:hover { border-color: var(--active); color: var(--active); }
+  .adj .msg { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+  .log td.manual { color: var(--active); }
   kbd { font-family: "JetBrains Mono", monospace; font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
 </style>
 </head>
@@ -122,8 +136,8 @@
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
 
   const $ = id => document.getElementById(id);
-  const openLogs = new Set(), openNotes = new Set(), drafts = {};
-  state.projects.forEach(p => { if (!Array.isArray(p.notes)) p.notes = []; });
+  const openLogs = new Set(), openNotes = new Set(), openAdj = new Set(), drafts = {};
+  state.projects.forEach(p => { if (!Array.isArray(p.notes)) p.notes = []; if (!Array.isArray(p.adjust)) p.adjust = []; });
 
   const fmt = ms => {
     const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
@@ -132,7 +146,8 @@
   const fmtClock = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const fmtDay = d => new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' });
   const sessLen = (s, now) => (s.end ?? now) - s.start;
-  const total = (p, now) => p.sessions.reduce((a, s) => a + sessLen(s, now), 0);
+  const total = (p, now) => Math.max(0, p.sessions.reduce((a, s) => a + sessLen(s, now), 0) + p.adjust.reduce((a, x) => a + x.delta, 0));
+  const fmtDelta = ms => (ms < 0 ? '−' : '+') + fmt(Math.abs(ms));
   const find = id => state.projects.find(p => p.id === id);
 
   function stopActive(now) {
@@ -158,8 +173,10 @@
         const cur = on ? p.sessions[p.sessions.length - 1] : null;
         const n = p.sessions.length;
         const info = on ? `Running · this session ${fmt(sessLen(cur, now))}` : (n ? `${n} session${n > 1 ? 's' : ''} · paused` : 'Not started');
-        const rows = p.sessions.slice().reverse().map(s =>
-          `<tr><td>${fmtDay(s.start)}, ${fmtClock(s.start)} – ${s.end ? fmtClock(s.end) : 'now'}</td><td>${fmt(sessLen(s, now))}</td></tr>`).join('');
+        const entries = p.sessions.map(s => ({ t: s.start, s })).concat(p.adjust.map(a => ({ t: a.at, a }))).sort((x, y) => y.t - x.t);
+        const rows = entries.map(e => e.s
+          ? `<tr><td>${fmtDay(e.s.start)}, ${fmtClock(e.s.start)} – ${e.s.end ? fmtClock(e.s.end) : 'now'}</td><td ${e.s.end == null ? 'data-live' : ''}>${fmt(sessLen(e.s, now))}</td></tr>`
+          : `<tr><td>${fmtDay(e.a.at)}, ${fmtClock(e.a.at)} · manual</td><td class="manual">${fmtDelta(e.a.delta)}</td></tr>`).join('');
         const openCount = p.notes.filter(x => !x.done).length;
         const noteRows = p.notes.map(x => `<div class="note-item ${x.done ? 'done' : ''}" data-note="${x.id}">
             <input type="checkbox" data-act="note-done" ${x.done ? 'checked' : ''} aria-label="Mark done">
@@ -175,11 +192,29 @@
           <div class="bar">
             <button data-act="log">${openLogs.has(p.id) ? 'Hide' : 'Show'} entries</button>
             <button data-act="notes">Notes${p.notes.length ? ` (${openCount}/${p.notes.length})` : ''}</button>
+            <button data-act="adj">Adjust time</button>
             <button data-act="rename">Rename</button>
             <button data-act="reset">Reset</button>
             <button class="del" data-act="delete">Delete</button>
           </div>
           <div class="log ${openLogs.has(p.id) ? 'open' : ''}">${rows ? `<table>${rows}</table>` : '<span class="note">No entries yet.</span>'}</div>
+          <div class="adj ${openAdj.has(p.id) ? 'open' : ''}">
+            <div class="fields">
+              <input type="number" min="0" inputmode="numeric" placeholder="0" data-h aria-label="Hours"><span class="unit">h</span>
+              <input type="number" min="0" inputmode="numeric" placeholder="0" data-m aria-label="Minutes"><span class="unit">m</span>
+              <button class="btn" data-act="adj-add">Add</button>
+              <button class="btn sub" data-act="adj-sub">Subtract</button>
+            </div>
+            <div class="chips">
+              <button class="chip" data-act="adj-chip" data-min="5">+5m</button>
+              <button class="chip" data-act="adj-chip" data-min="10">+10m</button>
+              <button class="chip" data-act="adj-chip" data-min="15">+15m</button>
+              <button class="chip" data-act="adj-chip" data-min="30">+30m</button>
+              <button class="chip" data-act="adj-chip" data-min="60">+1h</button>
+              <button class="chip" data-act="adj-chip" data-min="-5">−5m</button>
+            </div>
+            <div class="msg" data-adjmsg></div>
+          </div>
           <div class="notes ${openNotes.has(p.id) ? 'open' : ''}">
             <textarea data-draft placeholder="Write a note or to-do…">${esc(drafts[p.id] || '')}</textarea>
             <div class="addrow"><span class="note">Ctrl/⌘ + Enter to add</span><button class="addnote" data-act="note-add">Add note</button></div>
@@ -199,7 +234,7 @@
     if (!el) return;
     el.querySelector('[data-time]').textContent = fmt(total(p, now));
     el.querySelector('[data-info]').textContent = `Running · this session ${fmt(sessLen(p.sessions[p.sessions.length - 1], now))}`;
-    const openRow = el.querySelector('.log.open tr td:last-child');
+    const openRow = el.querySelector('.log.open td[data-live]');
     if (openRow) openRow.textContent = fmt(sessLen(p.sessions[p.sessions.length - 1], now));
     $('grand').textContent = fmt(state.projects.reduce((a, q) => a + total(q, now), 0));
   }, 250);
@@ -217,7 +252,7 @@
     e.preventDefault();
     const name = $('nameInput').value.trim();
     if (!name) return;
-    state.projects.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, sessions: [], notes: [] });
+    state.projects.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, sessions: [], notes: [], adjust: [] });
     $('nameInput').value = ''; save(); render();
   });
 
@@ -232,6 +267,18 @@
       if (opening) document.querySelector(`.clock[data-id="${id}"] [data-draft]`).focus();
     }
     else if (act === 'note-add') addNote(id);
+    else if (act === 'adj') {
+      const opening = !openAdj.has(id);
+      opening ? openAdj.add(id) : openAdj.delete(id); render();
+      if (opening) document.querySelector(`.clock[data-id="${id}"] [data-m]`).focus();
+    }
+    else if (act === 'adj-add' || act === 'adj-sub') {
+      const h = parseFloat(card.querySelector('[data-h]').value) || 0, m = parseFloat(card.querySelector('[data-m]').value) || 0;
+      const ms = Math.round((h * 60 + m) * 60000);
+      if (ms <= 0) { card.querySelector('[data-adjmsg]').textContent = 'Enter hours and/or minutes first.'; return; }
+      adjust(id, act === 'adj-add' ? ms : -ms);
+    }
+    else if (act === 'adj-chip') adjust(id, parseInt(btn.dataset.min, 10) * 60000);
     else if (act === 'note-done' || act === 'note-del' || act === 'note-edit') {
       const nid = btn.closest('[data-note]').dataset.note, n = p.notes.find(x => x.id === nid);
       if (act === 'note-done') { n.done = btn.checked; save(); render(); }
@@ -258,11 +305,21 @@
       inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = p.name; inp.blur(); } });
     }
     else if (act === 'reset') ask(`Clear all time for "${p.name}"?`, 'Reset', () => {
-      if (state.activeId === id) state.activeId = null; p.sessions = []; save(); render(); });
+      if (state.activeId === id) state.activeId = null; p.sessions = []; p.adjust = []; save(); render(); });
     else if (act === 'delete') ask(`Delete "${p.name}" and its entries?`, 'Delete', () => {
       if (state.activeId === id) state.activeId = null;
       state.projects = state.projects.filter(x => x.id !== id); save(); render(); });
   });
+
+  function adjust(id, delta) {
+    const p = find(id), now = Date.now(), cur = total(p, now);
+    if (delta < 0 && -delta > cur) delta = -cur;   // never go below zero
+    if (delta === 0) return;
+    p.adjust.push({ at: now, delta });
+    save(); render();
+    const msg = document.querySelector(`.clock[data-id="${id}"] [data-adjmsg]`);
+    if (msg) msg.textContent = `${fmtDelta(delta)} → total ${fmt(total(p, Date.now()))}`;
+  }
 
   function addNote(id) {
     const p = find(id), ta = document.querySelector(`.clock[data-id="${id}"] [data-draft]`);
@@ -276,13 +333,16 @@
     if (e.target.matches('[data-draft]')) drafts[e.target.closest('.clock').dataset.id] = e.target.value;
   });
   $('list').addEventListener('keydown', e => {
+    if (e.target.matches('[data-h],[data-m]') && e.key === 'Enter') {
+      e.preventDefault(); e.target.closest('.adj').querySelector('[data-act=adj-add]').click(); return;
+    }
     if (e.target.matches('[data-draft]') && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault(); addNote(e.target.closest('.clock').dataset.id);
     }
   });
 
   $('resetAll').onclick = () => ask('Clear the time for every project? Projects stay, entries are removed.', 'Reset all', () => {
-    state.activeId = null; state.projects.forEach(p => p.sessions = []); save(); render(); });
+    state.activeId = null; state.projects.forEach(p => { p.sessions = []; p.adjust = []; }); save(); render(); });
 
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || $('modal').classList.contains('show')) return;
