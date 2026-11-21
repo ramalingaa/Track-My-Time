@@ -42,7 +42,20 @@
   .info { font-size: 12px; color: var(--muted); margin-top: 3px; }
   .on .info { color: var(--active); font-weight: 500; }
   .time { font-family: "JetBrains Mono", monospace; font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .bar { display: flex; gap: 4px; padding: 0 12px 10px 42px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 10px 42px; }
+  .row { display: flex; align-items: center; padding-right: 14px; }
+  .row .face { flex: 1; min-width: 0; }
+  .ss { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    border: 1px solid var(--active); background: none; color: var(--active); }
+  .ss:hover { background: var(--active-soft); }
+  .on .ss { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .on .ss:hover { filter: brightness(1.08); background: var(--danger); }
+  .ss .ic { width: 9px; height: 9px; display: inline-block; }
+  .ss .play { width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .ss .sq { background: currentColor; border-radius: 1px; }
+  .running-count { font-size: 12px; color: var(--active); font-weight: 600; }
+  .foot .actions { display: flex; gap: 8px; }
+  .ghost:disabled { opacity: .45; cursor: default; }
   .bar button { background: none; border: 0; color: var(--muted); font-size: 12px; padding: 4px 6px; border-radius: 6px; }
   .bar button:hover { color: var(--ink); background: var(--line); }
   .bar .del:hover { color: var(--danger); }
@@ -99,9 +112,9 @@
   <header>
     <div>
       <h1>Track My Time</h1>
-      <div class="sub">Tap a project to start its clock. Only one runs at a time.</div>
+      <div class="sub">Tap a project to start its clock. Several can run at once — stop each when you're done.</div>
     </div>
-    <div class="grand"><div class="lbl">Total</div><div class="val" id="grand">0:00:00</div></div>
+    <div class="grand"><div class="lbl">Total <span class="running-count" id="runCount"></span></div><div class="val" id="grand">0:00:00</div></div>
   </header>
 
   <form id="addForm" autocomplete="off">
@@ -112,8 +125,11 @@
   <div class="list" id="list"></div>
 
   <div class="foot">
-    <span class="note">Press <kbd>1</kbd>–<kbd>9</kbd> to switch, <kbd>Space</kbd> to pause</span>
-    <button class="ghost" id="resetAll">Reset all</button>
+    <span class="note">Press <kbd>1</kbd>–<kbd>9</kbd> to start/stop a project, <kbd>Space</kbd> to stop all</span>
+    <div class="actions">
+      <button class="ghost" id="stopAll">Stop all</button>
+      <button class="ghost" id="resetAll">Reset all</button>
+    </div>
   </div>
 </div>
 
@@ -130,13 +146,15 @@
 <script>
 (() => {
   const KEY = 'project-chess-clock-v1';
-  // state: { projects: [{id, name, sessions:[{start, end|null}]}], activeId }
-  let state = { projects: [], activeId: null };
+  // state: { projects: [{id, name, sessions:[{start, end|null}], adjust, notes}] }
+  // A project is running when its last session has no end — any number can run at once.
+  let state = { projects: [] };
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.projects)) state = s; } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
 
   const $ = id => document.getElementById(id);
   const openLogs = new Set(), openNotes = new Set(), openAdj = new Set(), drafts = {};
+  delete state.activeId;
   state.projects.forEach(p => { if (!Array.isArray(p.notes)) p.notes = []; if (!Array.isArray(p.adjust)) p.adjust = []; });
 
   const fmt = ms => {
@@ -150,16 +168,13 @@
   const fmtDelta = ms => (ms < 0 ? '−' : '+') + fmt(Math.abs(ms));
   const find = id => state.projects.find(p => p.id === id);
 
-  function stopActive(now) {
-    const p = find(state.activeId);
-    if (p) { const s = p.sessions[p.sessions.length - 1]; if (s && s.end == null) s.end = now; }
-    state.activeId = null;
-  }
+  const live = p => { const s = p.sessions[p.sessions.length - 1]; return s && s.end == null ? s : null; };
+  const running = () => state.projects.filter(live);
+  function stop(p, now) { const s = live(p); if (s) s.end = now; }
+  function stopAll() { const now = Date.now(); state.projects.forEach(p => stop(p, now)); save(); render(); }
   function toggle(id) {
-    const now = Date.now();
-    const wasActive = state.activeId === id;
-    stopActive(now);
-    if (!wasActive) { find(id).sessions.push({ start: now, end: null }); state.activeId = id; }
+    const p = find(id), now = Date.now();
+    if (live(p)) stop(p, now); else p.sessions.push({ start: now, end: null });
     save(); render();
   }
 
@@ -169,8 +184,7 @@
       list.innerHTML = '<div class="empty">Add your first project above, then tap it to start the clock.</div>';
     } else {
       list.innerHTML = state.projects.map((p, i) => {
-        const on = p.id === state.activeId;
-        const cur = on ? p.sessions[p.sessions.length - 1] : null;
+        const cur = live(p), on = !!cur;
         const n = p.sessions.length;
         const info = on ? `Running · this session ${fmt(sessLen(cur, now))}` : (n ? `${n} session${n > 1 ? 's' : ''} · paused` : 'Not started');
         const entries = p.sessions.map(s => ({ t: s.start, s })).concat(p.adjust.map(a => ({ t: a.at, a }))).sort((x, y) => y.t - x.t);
@@ -184,11 +198,14 @@
             <div class="note-time">${fmtDay(x.created)}, ${fmtClock(x.created)}</div></div>
             <button class="note-del" data-act="note-del" aria-label="Delete note">×</button></div>`).join('');
         return `<div class="clock ${on ? 'on' : ''}" data-id="${p.id}">
-          <button class="face" data-act="toggle" aria-pressed="${on}">
-            <span class="dot"></span>
-            <span class="meta"><div class="name">${i < 9 ? (i + 1) + '. ' : ''}${esc(p.name)}</div><div class="info" data-info>${info}</div></span>
-            <span class="time" data-time>${fmt(total(p, now))}</span>
-          </button>
+          <div class="row">
+            <button class="face" data-act="toggle" aria-pressed="${on}">
+              <span class="dot"></span>
+              <span class="meta"><div class="name">${i < 9 ? (i + 1) + '. ' : ''}${esc(p.name)}</div><div class="info" data-info>${info}</div></span>
+              <span class="time" data-time>${fmt(total(p, now))}</span>
+            </button>
+            <button class="ss" data-act="toggle" aria-label="${on ? 'Stop' : 'Start'} ${esc(p.name)}">${on ? '<span class="ic sq"></span>Stop' : '<span class="ic play"></span>Start'}</button>
+          </div>
           <div class="bar">
             <button data-act="log">${openLogs.has(p.id) ? 'Hide' : 'Show'} entries</button>
             <button data-act="notes">Notes${p.notes.length ? ` (${openCount}/${p.notes.length})` : ''}</button>
@@ -224,18 +241,23 @@
       }).join('');
     }
     $('grand').textContent = fmt(state.projects.reduce((a, p) => a + total(p, now), 0));
+    const n = running().length;
+    $('runCount').textContent = n ? `· ${n} running` : '';
+    $('stopAll').disabled = !n;
   }
 
-  // Light per-second update of the running clock only
+  // Light per-second update of every running clock
   setInterval(() => {
-    if (!state.activeId) return;
-    const now = Date.now(), p = find(state.activeId);
-    const el = document.querySelector(`.clock[data-id="${p.id}"]`);
-    if (!el) return;
-    el.querySelector('[data-time]').textContent = fmt(total(p, now));
-    el.querySelector('[data-info]').textContent = `Running · this session ${fmt(sessLen(p.sessions[p.sessions.length - 1], now))}`;
-    const openRow = el.querySelector('.log.open td[data-live]');
-    if (openRow) openRow.textContent = fmt(sessLen(p.sessions[p.sessions.length - 1], now));
+    const list = running(); if (!list.length) return;
+    const now = Date.now();
+    list.forEach(p => {
+      const el = document.querySelector(`.clock[data-id="${p.id}"]`); if (!el) return;
+      const s = live(p);
+      el.querySelector('[data-time]').textContent = fmt(total(p, now));
+      el.querySelector('[data-info]').textContent = `Running · this session ${fmt(sessLen(s, now))}`;
+      const openRow = el.querySelector('.log.open td[data-live]');
+      if (openRow) openRow.textContent = fmt(sessLen(s, now));
+    });
     $('grand').textContent = fmt(state.projects.reduce((a, q) => a + total(q, now), 0));
   }, 250);
 
@@ -305,9 +327,8 @@
       inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = p.name; inp.blur(); } });
     }
     else if (act === 'reset') ask(`Clear all time for "${p.name}"?`, 'Reset', () => {
-      if (state.activeId === id) state.activeId = null; p.sessions = []; p.adjust = []; save(); render(); });
+      p.sessions = []; p.adjust = []; save(); render(); });
     else if (act === 'delete') ask(`Delete "${p.name}" and its entries?`, 'Delete', () => {
-      if (state.activeId === id) state.activeId = null;
       state.projects = state.projects.filter(x => x.id !== id); save(); render(); });
   });
 
@@ -341,12 +362,13 @@
     }
   });
 
+  $('stopAll').onclick = stopAll;
   $('resetAll').onclick = () => ask('Clear the time for every project? Projects stay, entries are removed.', 'Reset all', () => {
-    state.activeId = null; state.projects.forEach(p => { p.sessions = []; p.adjust = []; }); save(); render(); });
+    state.projects.forEach(p => { p.sessions = []; p.adjust = []; }); save(); render(); });
 
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || $('modal').classList.contains('show')) return;
-    if (e.key === ' ') { e.preventDefault(); if (state.activeId) { stopActive(Date.now()); save(); render(); } }
+    if (e.key === ' ') { e.preventDefault(); if (running().length) stopAll(); }
     const n = parseInt(e.key, 10);
     if (n >= 1 && n <= 9 && state.projects[n - 1]) toggle(state.projects[n - 1].id);
   });
